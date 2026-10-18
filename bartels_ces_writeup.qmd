@@ -1,0 +1,269 @@
+---
+title: "Replicating Bartels with the CES: Party Identification, 2008-2024"
+author: "Josh Arden"
+date: today
+format:
+  pdf:
+    toc: false
+execute:
+  warning: false
+  message: false
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(haven)
+library(tidyverse)
+library(here)
+library(patchwork)
+
+project_root <- here::here()
+raw_dir <- file.path(project_root, "data", "raw")
+```
+
+# 1. Introduction
+
+This write-up replicates Figures 1 and 2 from Bartels (2000), "Partisanship and Voting Behavior, 1952-1996," using the Cumulative CES (Kuriwaki 2025) for 2006-2024 instead of the ANES. Because the CES starts in 2006, it cannot reproduce Bartels' 1952-1996 years. It can only show whether his patterns hold in recent presidential elections (2008, 2012, 2016, 2020, 2024).
+
+Figure 1 shows the distribution of party identification (strong, weak, leaning independent, pure independent) among all respondents. Figure 2 shows the share of strong or weak identifiers among voters and nonvoters.
+
+# 2. Method and Code
+
+The project is split into stages that a master script runs in order: read, clean, then draw each figure. Each stage after reading is a function that takes data in and hands data back, so the figure functions only use the data they are given.
+
+## 2.1 Reading
+
+```{r}
+#| label: read
+# read in the Cumulative CES, 2006-2024
+raw_data <- read_dta(file.path(raw_dir, "cumulative_2006-2024.dta"))
+```
+
+## 2.2 Cleaning
+
+`clean_cces()` keeps the columns the figures use, keeps presidential years, and recodes party ID and turnout. It does not drop any respondents, so each figure script defines its own sample.
+
+Turnout is self-reported (`voted_turnout_self`) because the guide for the version of the cumulative file I used lists 2024 vote validation as planned for a future release, so validated turnout is missing for 2024. Leaners are coded as non-partisan, following Bartels' footnote 2.
+
+```{r}
+#| label: clean
+clean_cces <- function(raw_data) {
+  raw_data |>
+    select(year, case_id, pid7, voted_turnout_self,
+           weight, weight_post, voted_pres_party) |>
+    filter(year %in% c(2008, 2012, 2016, 2020, 2024)) |>
+    mutate(
+      pid_cat = case_when(
+        pid7 %in% c(1, 7) ~ "strong",
+        pid7 %in% c(2, 6) ~ "weak",
+        pid7 %in% c(3, 5) ~ "lean_ind",
+        pid7 == 4         ~ "pure_ind"
+      ),
+      partisan = case_when(
+        pid7 %in% c(1, 2, 6, 7) ~ 1,
+        pid7 %in% c(3, 4, 5)    ~ 0
+      ),
+      voter = case_when(
+        as_factor(voted_turnout_self) == "Yes" ~ 1,
+        as_factor(voted_turnout_self) == "No"  ~ 0
+      )
+    )
+}
+
+clean_data <- clean_cces(raw_data)
+```
+
+Respondents with "Not Sure," "Don't Know," or missing party ID have no `pid_cat` and are dropped from both figures. Respondents with missing turnout are dropped from Figure 2 only.
+
+```{r}
+#| label: sample-sizes
+# how many respondents each figure keeps, by year
+clean_data |>
+  group_by(year) |>
+  summarise(all_rows        = n(),
+            fig1_sample     = sum(!is.na(pid_cat)),
+            fig2_sample     = sum(!is.na(pid_cat) & !is.na(voter)))
+```
+
+## 2.3 Figure 1 function
+
+```{r}
+#| label: fig1-function
+make_fig1 <- function(clean_data) {
+
+  fig1_data <- clean_data |>
+    filter(!is.na(pid_cat)) |>
+    group_by(year, pid_cat) |>
+    summarise(n = sum(weight), .groups = "drop") |>
+    group_by(year) |>
+    mutate(
+      share = n / sum(n),
+      panel = case_when(
+        pid_cat %in% c("strong", "weak")       ~ "A",
+        pid_cat %in% c("lean_ind", "pure_ind") ~ "B"
+      ),
+      pid_cat = factor(pid_cat,
+                       levels = c("strong", "weak", "lean_ind", "pure_ind"),
+                       labels = c("Strong Identifiers", "Weak Identifiers",
+                                  "Independent Leaners", "Pure Independents"))
+    ) |>
+    ungroup()
+
+  election_years <- c(2008, 2012, 2016, 2020, 2024)
+
+  bartels_theme <- theme_minimal(base_size = 12) +
+    theme(
+      panel.border      = element_rect(color = "black", fill = NA, linewidth = 0.5),
+      panel.grid.minor  = element_line(linewidth = 0.2),
+      panel.grid.major  = element_line(linewidth = 0.3),
+      legend.background = element_rect(fill = "white", color = "grey70", linewidth = 0.3),
+      plot.title        = element_text(face = "bold")
+    )
+
+  base_panel <- function(d) {
+    ggplot(d, aes(x = year, y = share, linetype = pid_cat, shape = pid_cat)) +
+      scale_y_continuous(limits = c(0, 0.5), breaks = seq(0, 0.5, 0.1),
+                         minor_breaks = seq(0, 0.5, 0.05), name = NULL) +
+      scale_x_continuous(breaks = election_years, minor_breaks = election_years,
+                         name = "Year") +
+      geom_hline(yintercept = seq(0.1, 0.5, 0.1),
+                 linetype = "dotted", linewidth = 0.2, color = "black") +
+      geom_vline(xintercept = election_years,
+                 linetype = "dotted", linewidth = 0.2, color = "black") +
+      geom_line(linewidth = 0.7, color = "black") +
+      geom_point(size = 2.2, stroke = 0.9, color = "black", fill = NA) +
+      guides(linetype = guide_legend(ncol = 1, title = NULL),
+             shape    = guide_legend(ncol = 1, title = NULL)) +
+      bartels_theme
+  }
+
+  panel_a <- base_panel(filter(fig1_data, panel == "A")) +
+    scale_linetype_manual(values = c("Strong Identifiers" = "solid",
+                                     "Weak Identifiers"   = "dashed")) +
+    scale_shape_manual(values = c("Strong Identifiers" = 16,
+                                  "Weak Identifiers"   = 1)) +
+    labs(title    = "Distribution of Party Identification, 2008-2024",
+         subtitle = "Proportions of CES Sample",
+         caption  = "Presidential Election Years Only") +
+    theme(legend.position = c(0.6, 0.2))
+
+  panel_b <- base_panel(filter(fig1_data, panel == "B")) +
+    scale_linetype_manual(values = c("Independent Leaners" = "dashed",
+                                     "Pure Independents"   = "solid")) +
+    scale_shape_manual(values = c("Independent Leaners" = 1,
+                                  "Pure Independents"   = 16)) +
+    theme(legend.position = c(0.4, 0.8))
+
+  (panel_a + theme(axis.title.x = element_blank(), axis.text.x = element_blank(),
+                   axis.ticks.x = element_blank(), plot.caption = element_blank())) /
+    (panel_b + theme(axis.title.x = element_blank()))
+}
+```
+
+## 2.4 Figure 2 function
+
+```{r}
+#| label: fig2-function
+make_fig2 <- function(clean_data) {
+
+  fig2_data <- clean_data |>
+    filter(!is.na(pid_cat), !is.na(voter)) |>
+    group_by(year, voter) |>
+    summarise(share = weighted.mean(partisan, weight), .groups = "drop") |>
+    mutate(group = if_else(voter == 1, "Voters", "Nonvoters"))
+
+  election_years <- c(2008, 2012, 2016, 2020, 2024)
+
+  ggplot(fig2_data, aes(x = year, y = share, linetype = group, shape = group)) +
+    geom_hline(yintercept = seq(0.1, 1.0, 0.1),
+               linetype = "dotted", linewidth = 0.2, color = "black") +
+    geom_vline(xintercept = election_years,
+               linetype = "dotted", linewidth = 0.2, color = "black") +
+    geom_line(linewidth = 0.7, color = "black") +
+    geom_point(size = 2.2, stroke = 0.9, color = "black", fill = NA) +
+    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.1),
+                       minor_breaks = seq(0, 1, 0.05), name = NULL) +
+    scale_x_continuous(breaks = election_years, minor_breaks = election_years,
+                       name = "Year") +
+    scale_linetype_manual(values = c("Nonvoters" = "dashed", "Voters" = "solid")) +
+    scale_shape_manual(values = c("Nonvoters" = 1, "Voters" = 16)) +
+    guides(linetype = guide_legend(ncol = 1, title = NULL),
+           shape    = guide_legend(ncol = 1, title = NULL)) +
+    labs(title    = "Party Identification Among Presidential Voters and Nonvoters",
+         subtitle = "Proportions of Strong or Weak Identifiers in CES Sample",
+         caption  = "Presidential Election Years Only, Weighted") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.border      = element_rect(color = "black", fill = NA, linewidth = 0.5),
+      panel.grid.minor  = element_line(linewidth = 0.2),
+      panel.grid.major  = element_line(linewidth = 0.3),
+      legend.position   = c(0.2, 0.2),
+      legend.background = element_rect(fill = "white", color = "grey70", linewidth = 0.3),
+      plot.title        = element_text(face = "bold")
+    )
+}
+```
+
+# 3. Results
+
+## 3.1 Figure 1: distribution of party identification
+
+```{r}
+#| label: fig-1
+#| fig-cap: "Distribution of party identification in the CES, presidential years 2008-2024. Weighted shares among respondents with a valid party ID."
+#| fig-height: 8
+#| fig-width: 6
+fig1 <- make_fig1(clean_data)
+fig1
+```
+
+Strong identifiers outnumber weak identifiers in every year, and leaners outnumber pure independents in every year. Between 2008 and 2012, strong identifiers fall from about 0.47 to 0.38 while leaners rise from about 0.19 to 0.27, with weak identifiers roughly unchanged. Because this is a repeated cross-section, this shows a change in the sample's composition, not individuals switching categories.
+
+## 3.2 Figure 2: voters and nonvoters
+
+```{r}
+#| label: fig-2
+#| fig-cap: "Share of strong or weak identifiers among presidential voters and nonvoters in the CES, 2008-2024. Turnout is self-reported."
+#| fig-height: 4.5
+#| fig-width: 7
+fig2 <- make_fig2(clean_data)
+fig2
+```
+
+Voters are more partisan than nonvoters in every year, by roughly 11 to 21 percentage points. The gap narrows through 2016 and then widens again, so there is no clear trend from 2008 to 2024.
+
+Bartels reports that about 75 to 77 percent of voters were party identifiers in 1952, 1956, and 1996, and that the voter/nonvoter gap grew from about 10 points in the 1950s to about 20 points by the 1990s. The CES voter line is lower than his (roughly 0.62 to 0.72), but the gap in 2008 and 2024 (about 20 points) is close to the roughly 20-point gap he reports for the 1990s. I did not replicate Figure 2 with the ANES, so this comparison uses the numbers Bartels reports in his text.
+
+## 3.3 Sensitivity to weighting in 2012
+
+```{r}
+#| label: weight-check
+# unweighted vs. weighted shares of each party ID category, by year
+clean_data |>
+  filter(!is.na(pid_cat)) |>
+  group_by(year, pid_cat) |>
+  summarise(unweighted = n(), weighted = sum(weight), .groups = "drop") |>
+  group_by(year) |>
+  mutate(unweighted = unweighted / sum(unweighted),
+         weighted   = weighted / sum(weighted)) |>
+  print(n = 20)
+```
+
+The 2012 dip in strong identifiers and the spike in leaners are much larger in the weighted estimates than in the raw responses. Unweighted, strong identifiers fall from 0.50 to 0.45 and leaners rise from 0.20 to 0.23. Weighted, strong falls from 0.47 to 0.38 and leaners rise from 0.19 to 0.27. Weighting changes the estimates little in 2016 and 2020, so the 2012 result is sensitive to weighting. I could not determine why.
+
+# 4. Discussion
+
+## 4.1 Challenges
+
+The hardest part was understanding how the master script passes information between stages. I had to learn that `source()` only defines a function unless the script runs code, that the function has to be called to produce an object, and that the parameter name inside a function is a stand-in for the object the master hands it. Building file paths with `here()` and `file.path()` and saving figures into the project's `output` folder took extra effort, but it made the project reproducible on another computer.
+
+I also had to decide how to handle 2024 turnout. The guide for the cumulative file I used lists 2024 vote validation as planned for a future release, so validated turnout is missing for 2024. I used self-reported turnout instead, which is available for every year but tends to overstate voting. Other limits are that the CES covers only 2006-2024, so Bartels' years cannot be reproduced, and that post-election weights are missing for some years, so I used the pre-election weight even though turnout comes from the post-election wave. The 2012 weighting result in Section 3.3 was the most analytical problem I ran into.
+
+## 4.2 Differences from the ANES replication
+
+I compared the CES to my ANES replication of Figure 1. I did not replicate Figure 2 with the ANES. In my ANES figure, strong identifiers rise from the mid-1970s to 1996, consistent with the rise Bartels reports (24 to 31 percent).
+
+In both surveys strong identifiers outnumber weak identifiers in 2020 and 2024. The CES shows a much higher share of strong identifiers in 2008 than the ANES, and the weighted 2012 dip in strong identifiers in the CES does not appear in the ANES. This fits my finding that the 2012 CES estimate is sensitive to weighting, although it does not prove it. In 2024 the ANES shows fewer pure independents than the CES.
+
+The two surveys differ in design, and I handled missing responses differently: I kept them in the ANES denominator but dropped them in the CES. For that reason I compare patterns, not exact levels.

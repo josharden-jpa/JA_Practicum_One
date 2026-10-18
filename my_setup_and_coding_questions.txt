@@ -1,0 +1,99 @@
+MY SETUP AND CODING QUESTIONS (in the order I asked them)
+Project: replicating Bartels Figures 1 and 2 with the Cumulative CES in R
+Typos are left as I typed them.
+
+==============================================================
+
+1.
+walk me through a bit slower. how does the voter not voter know the pid? because theyre all in the same observation/row? so we take each person strong or weak added together in each presidential year. split in voter and non voter. and divide by the total strong and weak in each subgroup of voter non voter by the total amount in the group? then plot
+
+2.
+okay im keeping the filtering selecting and recoding in a script seperate and then the master will chand the clean data off to other figure scripts. do i have to take te raw data, get rid of what i dont need, keep what i do, and create new columns/ recode the response values and for proportion before handing clean dataset back?
+
+3.
+wait okay give me one real answer then all together, knowing my placeholder detail, so we can go line by line. not answer as in code. lets discuss and show me the code bit by bit or teach how to write
+
+4.
+explain this how i would explain it to someone else, i know it and have used it but just wanna be 100% clear:   filter(!is.na(pid_cat), !is.na(voter)
+
+5.
+so should the cleaning stage have the filter at all, is there any reason later we would want to have kept the data for those who have a voter status but is "Not Sure 20,817 Don’t Know 3 (Missing) 3,032" for pid7/pid_cat?
+
+6.
+so if i run these in the master, am i missing a call to actually run the function? because the rawdata returns in the environmenr and the second script seems to be sourced but nothing happens or no clean data objects appears in environment: source(file.path(project_root, "Data_ONE.R"))
+
+# Stage Two - "Cleaning" - 
+
+source(file.path(project_root, "Clean_TWO.R"))
+
+7.
+it was a simple fix where the name is clean_cces instead. now for the figure scripts, do i make a new function again or just source and run a script(s) that uses the clean data?
+
+8.
+so that if clean_data changes for any reason upstream it doesnt have to be change dhere too?
+
+9.
+in the master, is "clean" here supposed to be what the clean step names itself? in my master it is cleaned_data, or is this its own new name?: fig1 <- make_fig1(clean)
+
+10.
+what is the ungroup now doing
+
+11.
+why didnt it have it before
+
+12.
+do i still need     summarise(n = sum(weight), .groups = "drop") |>
+.groups when they are dropped after? or yes because these are diff groups
+
+13.
+wait, before we move on, we make raw_dir with # the data/raw folder path, built with file.path() so it works on any OS.
+raw_dir <- file.path(project_root, "data", "raw") but then when does the actual data get directed there?
+
+14.
+okay soraw_dir is in raw_data <- read_dta(file.path(raw_dir, "cumulative_2006-2024.dta")) so that the file path doesnt have to get rewritten if it is changed in/only the master, but you still have to give exact dta file name?
+
+15.
+is that so it goes into the folder for the file rather than relying on having it open as a tab or in environment
+
+16.
+so it doesnt change the persons wd but does change where the script is sourced from to specify... after One the raw data item pops up in the environment and after Two the clean function appears
+
+17.
+so i called the function raw data but it really could be called anything and still uses raw_data as its first line because raw_data is the object made in One so i could call the function Josh and in the master it could say clean_data <- clean_cces(Josh) and it would still use raw_data? or i have it backwards and it could be clean_data <- Josh(raw_data), and the function from Two called Josh would use whatever data was made in One and handed by master
+
+18.
+but then how does Josh know what data to use
+
+19.
+what else would i call the parameter and why? the data inside clean_cces comes from the master each time it runs, like in this master im creating and object that stores clean_cces function being run with the raw_data object created in the previous stage
+
+20.
+do i change both to 10 like this? 
+source(file.path(project_root, "Fig1_THREE.R"))   # defines make_fig2()
+
+fig1 <- make_fig1(clean_data)                          # runs it
+fig1                                              # displays it
+ggsave(file.path(project_root, "output", "fig1.png"), fig1, width = 7, height = 10)
+
+
+source(file.path(project_root, "Fig2_FOUR.R"))   # defines make_fig2()
+
+fig2 <- make_fig2(clean_data)                          # runs it
+fig2                                              # displays it
+ggsave(file.path(project_root, "output", "fig2.png"), fig2, width = 7, height = 10)
+
+21.
+right above ggsave or at top?
+
+22.
+how do i know if its time to move on to write up
+
+==============================================================
+WRITE-UP REQUESTS (added later; these are requests, not how-to questions)
+==============================================================
+
+23.
+can you instead ask me the questions and then you can give short write up script with the code i used
+
+24.
+create the whole thing and answer in my wording
